@@ -70,6 +70,25 @@ export interface Cover {
   classification: string
   location: string
   date: string
+  logoId: string
+  bannerId: string
+}
+
+export interface ImageAsset {
+  id: string
+  dataUrl: string
+  filename: string
+  width: number
+  height: number
+}
+
+export interface Figure {
+  id: string
+  assetId: string
+  url: string
+  caption: string
+  note: string
+  placement: string
 }
 
 export interface Finding {
@@ -107,6 +126,8 @@ export interface ReportDoc {
   apa: boolean
   annexStyle: 'appendix' | 'anexo'
   cover: Cover
+  images: ImageAsset[]
+  figures: Figure[]
   executiveSummary: { enabled: boolean; text: string }
   objective: { enabled: boolean; items: ListItem[] }
   scope: {
@@ -213,7 +234,11 @@ export function defaultDoc(): ReportDoc {
       classification: 'Interno',
       location: '',
       date: data,
+      logoId: '',
+      bannerId: '',
     },
+    images: [],
+    figures: [],
     executiveSummary: { enabled: true, text: '' },
     objective: { enabled: true, items: [] },
     scope: {

@@ -1,9 +1,17 @@
 /**
  * Motor de geração do relatório em Markdown.
  * Produz um documento formal, estruturado e pronto para publicação.
- * Suporta o padrão APA (7.ª edição) nas referências e nos anexos.
+ * Suporta o padrão APA (7.ª edição) nas referências, nas figuras e nos anexos.
  */
-import type { ReportDoc, Finding, Severity, Reference, RefType } from './types'
+import type {
+  ReportDoc,
+  Finding,
+  Severity,
+  Reference,
+  RefType,
+  Figure,
+  ImageAsset,
+} from './types'
 import { SEVERITIES } from './types'
 
 /* ------------------------------------------------------------------ */
@@ -56,7 +64,6 @@ function formatAuthors(raw: string, corporate = false): string {
     .filter(Boolean)
   if (!list.length) return ''
 
-  // Autores institucionais são transcritos na íntegra, conforme APA 7.
   if (corporate) {
     if (list.length === 1) return list[0]
     if (list.length === 2) return `${list[0]}, & ${list[1]}`
@@ -104,7 +111,6 @@ const MESES_PT = [
   'dezembro',
 ]
 
-/** Formata a data de acesso no estilo APA: "22 de outubro de 2026". */
 function formatDatePt(raw: string): string {
   const d = new Date(raw)
   if (Number.isNaN(d.getTime())) return raw
@@ -132,16 +138,12 @@ function apaReference(r: Reference): string {
 
   const yearPart = year ? `(${year})` : '(s.d.)'
   const parts: string[] = []
-
-  const head = authors ? `${authors} ${yearPart}.` : `${yearPart}.`
-  parts.push(head)
+  parts.push(authors ? `${authors} ${yearPart}.` : `${yearPart}.`)
 
   switch (r.type as RefType) {
     case 'livro': {
       parts.push(
-        `${title}${edition ? ` (${edition}ª ed.)` : ''}.${
-          publisher ? ` ${publisher}.` : ''
-        }`,
+        `${title}${edition ? ` (${edition}ª ed.)` : ''}.${publisher ? ` ${publisher}.` : ''}`,
       )
       break
     }
@@ -150,9 +152,7 @@ function apaReference(r: Reference): string {
       const num = issue ? `(${issue})` : ''
       const pg = pages ? `, ${pages}` : ''
       parts.push(`${title}.`)
-      parts.push(
-        `${source ? `*${source}*` : '*Periódico*'}${vol}${num}${pg}.`,
-      )
+      parts.push(`${source ? `*${source}*` : '*Periódico*'}${vol}${num}${pg}.`)
       break
     }
     case 'website': {
@@ -241,12 +241,54 @@ function buildToc(entries: TocEntry[]): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* Imagens e figuras                                                   */
+/* ------------------------------------------------------------------ */
+
+export interface BuildOptions {
+  /** Resolve o URL final de uma imagem (data URL ou caminho relativo). */
+  imageSrc?: (asset: ImageAsset) => string
+}
+
+function defaultSrc(asset: ImageAsset): string {
+  return asset.dataUrl
+}
+
+function assetById(doc: ReportDoc, id: string): ImageAsset | undefined {
+  return doc.images.find((i) => i.id === id)
+}
+
+function figureSource(
+  doc: ReportDoc,
+  fig: Figure,
+  opts: BuildOptions,
+): string | null {
+  const asset = fig.assetId ? assetById(doc, fig.assetId) : undefined
+  if (asset) return (opts.imageSrc ?? defaultSrc)(asset)
+  if (has(fig.url)) return body(fig.url)
+  return null
+}
+
+/** Remove caracteres que quebram a sintaxe de imagem em Markdown. */
+function altText(text: string): string {
+  return text.replace(/[[\]]/g, '').replace(/\r?\n/g, ' ')
+}
+
+/* ------------------------------------------------------------------ */
 /* Blocos                                                              */
 /* ------------------------------------------------------------------ */
 
-function renderCover(doc: ReportDoc): string {
+function renderCover(doc: ReportDoc, opts: BuildOptions): string {
   const c = doc.cover
   const out: string[] = []
+
+  const logo = c.logoId ? assetById(doc, c.logoId) : undefined
+  if (logo) {
+    out.push(
+      `<img src="${(opts.imageSrc ?? defaultSrc)(logo)}" alt="Logotipo" width="130">`,
+      '',
+    )
+  }
+
   out.push(`# ${body(c.title) || 'Relatório'}`)
   if (has(c.subtitle)) out.push('', `> ${body(c.subtitle)}`)
   out.push('')
@@ -265,6 +307,12 @@ function renderCover(doc: ReportDoc): string {
   if (has(c.date)) rows.push(['Data', c.date])
 
   if (rows.length) out.push(table(rows))
+
+  const banner = c.bannerId ? assetById(doc, c.bannerId) : undefined
+  if (banner) {
+    out.push('', `![Imagem de capa](${(opts.imageSrc ?? defaultSrc)(banner)})`)
+  }
+
   return out.join('\n')
 }
 
@@ -285,22 +333,10 @@ function renderFinding(f: Finding, index: number): string {
     out.push('')
   }
 
-  if (has(f.evidence)) {
-    out.push('#### Evidência', '', body(f.evidence))
-    out.push('')
-  }
-  if (has(f.analysis)) {
-    out.push('#### Análise', '', body(f.analysis))
-    out.push('')
-  }
-  if (has(f.impact)) {
-    out.push('#### Impacto', '', body(f.impact))
-    out.push('')
-  }
-  if (has(f.correction)) {
-    out.push('#### Correção', '', body(f.correction))
-    out.push('')
-  }
+  if (has(f.evidence)) out.push('#### Evidência', '', body(f.evidence), '')
+  if (has(f.analysis)) out.push('#### Análise', '', body(f.analysis), '')
+  if (has(f.impact)) out.push('#### Impacto', '', body(f.impact), '')
+  if (has(f.correction)) out.push('#### Correção', '', body(f.correction), '')
 
   return out.join('\n')
 }
@@ -316,39 +352,74 @@ function bulletList(items: Array<{ text: string }>): string {
 /* Gerador principal                                                   */
 /* ------------------------------------------------------------------ */
 
-export function buildMarkdown(doc: ReportDoc): string {
+export function buildMarkdown(
+  doc: ReportDoc,
+  opts: BuildOptions = {},
+): string {
   const blocks: string[] = []
   const toc: TocEntry[] = []
   const apa = doc.apa
   let sectionNo = 0
+  let figureNo = 0
 
-  const pushSection = (title: string, content: string) => {
+  /** Figuras APA: número, legenda em itálico, imagem e nota. */
+  const renderFigures = (key: string): string => {
+    const items = doc.figures.filter(
+      (f) =>
+        f.placement === key &&
+        (f.assetId || has(f.url)) &&
+        (has(f.caption) || f.assetId || has(f.url)),
+    )
+    if (!items.length) return ''
+
+    return items
+      .map((fig) => {
+        const src = figureSource(doc, fig, opts)
+        if (!src) return ''
+        figureNo += 1
+        const caption = body(fig.caption) || `Figura ${figureNo}`
+        const lines = [
+          `**Figura ${figureNo}**`,
+          '',
+          `*${caption}*`,
+          '',
+          `![${altText(caption)}](${src})`,
+        ]
+        if (has(fig.note)) lines.push('', `*Nota.* ${body(fig.note)}`)
+        return lines.join('\n')
+      })
+      .filter(Boolean)
+      .join('\n\n')
+  }
+
+  const pushSection = (title: string, content: string, key?: string) => {
     sectionNo += 1
     const fullTitle = `${sectionNo}. ${title}`
     toc.push({ level: 2, text: fullTitle, anchor: slugify(fullTitle) })
-    blocks.push(`## ${fullTitle}\n\n${content}`.trim())
+    const figs = key ? renderFigures(key) : ''
+    const inner = [content.trim(), figs].filter(Boolean).join('\n\n')
+    blocks.push(`## ${fullTitle}\n\n${inner}`.trim())
   }
 
   /* ---------------- 1. Capa ---------------- */
-  blocks.push(renderCover(doc))
+  blocks.push(renderCover(doc, opts))
 
   /* ---------------- Resumo Executivo ---------------- */
   if (doc.executiveSummary.enabled && has(doc.executiveSummary.text)) {
-    pushSection('Resumo Executivo', body(doc.executiveSummary.text))
+    pushSection('Resumo Executivo', body(doc.executiveSummary.text), 'resumo')
   }
 
   /* ---------------- Objetivo ---------------- */
   if (doc.objective.enabled) {
     const items = doc.objective.items.filter((i) => has(i.text))
-    if (items.length) {
-      pushSection('Objetivo', bulletList(items))
-    }
+    if (items.length) pushSection('Objetivo', bulletList(items), 'objetivo')
   }
 
   /* ---------------- Âmbito e Metodologia ---------------- */
   if (doc.scope.enabled) {
     const inner: string[] = []
     let sub = 0
+
     const scopeItems = doc.scope.items.filter((i) => has(i.text))
     if (scopeItems.length) {
       sub += 1
@@ -376,15 +447,13 @@ export function buildMarkdown(doc: ReportDoc): string {
         ].join('\n'),
       )
     }
-    if (inner.length) {
-      pushSection('Âmbito e Metodologia', inner.join('\n\n'))
-    }
+    if (inner.length) pushSection('Âmbito e Metodologia', inner.join('\n\n'), 'ambito')
   }
 
   /* ---------------- Secções de conteúdo ---------------- */
   for (const s of doc.sections) {
     if (!s.enabled || !has(s.title)) continue
-    pushSection(body(s.title), body(s.body))
+    pushSection(body(s.title), body(s.body), `sec:${s.id}`)
   }
 
   /* ---------------- Achados / Resultados ---------------- */
@@ -392,12 +461,12 @@ export function buildMarkdown(doc: ReportDoc): string {
     const inner: string[] = []
     if (has(doc.findings.intro)) inner.push(body(doc.findings.intro), '')
     inner.push(...doc.findings.items.map((f, i) => renderFinding(f, i + 1)))
-    pushSection('Achados e Resultados', inner.join('\n'))
+    pushSection('Achados e Resultados', inner.join('\n'), 'achados')
   }
 
   /* ---------------- Conclusão ---------------- */
   if (doc.conclusion.enabled && has(doc.conclusion.text)) {
-    pushSection('Conclusão', body(doc.conclusion.text))
+    pushSection('Conclusão', body(doc.conclusion.text), 'conclusao')
   }
 
   /* ---------------- Recomendações ---------------- */
@@ -409,7 +478,7 @@ export function buildMarkdown(doc: ReportDoc): string {
         '',
         ...items.map((i, idx) => `${idx + 1}. ${body(i.text)}`),
       ].join('\n')
-      pushSection('Recomendações', content)
+      pushSection('Recomendações', content, 'recomendacoes')
     }
   }
 
@@ -432,7 +501,7 @@ export function buildMarkdown(doc: ReportDoc): string {
         ].join('\n')
       : entries.map((e, i) => `${i + 1}. ${e}`).join('\n\n')
 
-    pushSection(title, content)
+    pushSection(title, content, 'referencias')
   }
 
   /* ---------------- Montagem final ---------------- */
@@ -448,7 +517,7 @@ export function buildMarkdown(doc: ReportDoc): string {
 
   let md = final.join(separator)
 
-  /* ---------------- Anexos (APA: Appendix A / Anexo A) ---------------- */
+  /* ---------------- Anexos ---------------- */
   const annexes = doc.annexes.enabled
     ? doc.annexes.items.filter((a) => has(a.title) || has(a.body))
     : []
@@ -458,15 +527,10 @@ export function buildMarkdown(doc: ReportDoc): string {
     const rendered = annexes.map((a, i) => {
       const letter = letters[i] ?? String(i + 1)
       const title = body(a.title) || 'Anexo'
-      // APA: rótulo numa linha, título na linha seguinte em negrito, conteúdo abaixo.
       const label = useAppendix ? `Appendix ${letter}` : `Anexo ${letter}`
-      return [
-        `## ${label}`,
-        '',
-        `**${title}**`,
-        '',
-        body(a.body) || '—',
-      ].join('\n')
+      const figs = renderFigures(`anx:${a.id}`)
+      const content = [body(a.body) || '—', figs].filter(Boolean).join('\n\n')
+      return [`## ${label}`, '', `**${title}**`, '', content].join('\n')
     })
     md += separator + rendered.join(separator)
   }
