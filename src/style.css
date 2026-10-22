@@ -1,0 +1,161 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'Fira Code', Menlo, Consolas,
+    monospace;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+/* ---------- Scrollbars ---------- */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- Preview prose ---------- */
+.prose {
+  font-size: 0.925rem;
+  line-height: 1.75;
+  color: #1e293b;
+}
+.prose h1 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 1rem;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+}
+.prose h2 {
+  font-size: 1.24rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 2rem 0 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #e2e8f0;
+  letter-spacing: -0.01em;
+}
+.prose h3 {
+  font-size: 1.04rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 1.5rem 0 0.5rem;
+}
+.prose h4 {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #64748b;
+  margin: 1.15rem 0 0.35rem;
+}
+.prose p {
+  margin: 0 0 0.85rem;
+}
+.prose ul,
+.prose ol {
+  margin: 0 0 0.9rem;
+  padding-left: 1.35rem;
+}
+.prose ul {
+  list-style: disc;
+}
+.prose ol {
+  list-style: decimal;
+}
+.prose li {
+  margin-bottom: 0.3rem;
+}
+.prose strong {
+  font-weight: 650;
+  color: #0f172a;
+}
+.prose a {
+  color: #1d4ed8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose blockquote {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.9rem;
+  border-left: 3px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  font-style: italic;
+}
+.prose blockquote p:last-child {
+  margin-bottom: 0;
+}
+.prose code {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+.prose pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0 0 1rem;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+.prose pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 1.1rem;
+  font-size: 0.875rem;
+}
+.prose thead th {
+  background: #f1f5f9;
+  text-align: left;
+  font-weight: 650;
+  color: #0f172a;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid #e2e8f0;
+}
+.prose tbody td {
+  padding: 0.5rem 0.7rem;
+  border: 1px solid #e2e8f0;
+  vertical-align: top;
+}
+.prose tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+.prose hr {
+  border: 0;
+  border-top: 1px solid #e2e8f0;
+  margin: 1.75rem 0;
+}
+.prose > :first-child {
+  margin-top: 0;
+}

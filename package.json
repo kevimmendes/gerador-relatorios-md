@@ -1,0 +1,22 @@
+{
+  "name": "gerador-relatorios-md",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gerador de relatorios formais em Markdown",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  },
+  "dependencies": {
+    "marked": "^18.1.1"
+  }
+}
