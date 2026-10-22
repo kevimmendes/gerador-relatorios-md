@@ -914,27 +914,49 @@ function render(): void {
   actions.appendChild(collabPeers)
   actions.appendChild(
     button(
-      collab ? 'Sair da colaboração' : 'Colaborar',
+      collab ? 'Sair' : 'Colaborar',
       collab ? 'ui-btn' : 'ui-btn',
       () => {
         if (collab) {
           stopCollab()
+          const url = new URL(window.location.href)
+          url.searchParams.delete('sala')
+          history.replaceState({}, '', url.toString())
           render()
           return
         }
-        const room = window.prompt(
-          'Código da sala (compartilhe com o colega):',
-          `relatorio-${Math.random().toString(36).slice(2, 8)}`,
+        const choice = window.confirm(
+          'OK = Criar sala (copia link)\nCancelar = Entrar com código/URL',
         )
-        if (room && room.trim()) {
-          startCollab(room.trim())
-          // Compartilha link
+        if (choice) {
+          const room = `relatorio-${Math.random().toString(36).slice(2, 10)}`
+          startCollab(room)
           const url = new URL(window.location.href)
-          url.searchParams.set('sala', room.trim())
+          url.searchParams.set('sala', room)
           history.replaceState({}, '', url.toString())
-          render()
+          try {
+            navigator.clipboard.writeText(url.toString())
+            alert('Link copiado!\n\n' + url.toString())
+          } catch {
+            prompt('Copie este link:', url.toString())
+          }
+        } else {
+          const code = window.prompt('Cole o código da sala ou o link:')
+          if (!code) return
+          let room = code.trim()
+          try {
+            const u = new URL(room)
+            room = u.searchParams.get('sala') || u.hash.replace('#', '') || room
+          } catch {}
+          if (!room) return
+          startCollab(room)
+          const url2 = new URL(window.location.href)
+          url2.searchParams.set('sala', room)
+          history.replaceState({}, '', url2.toString())
         }
+        render()
       },
+      collab ? 'Sair da colaboração' : 'Criar ou entrar em sala',
     ),
   )
   actions.appendChild(themeToggleButton())
