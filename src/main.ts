@@ -1,6 +1,6 @@
 import './style.css'
 import { marked } from 'marked'
-import { buildMarkdown, inTextCitation } from './generator'
+import { inTextCitation } from './generator'
 import {
   defaultDoc,
   emptyFinding,
@@ -28,6 +28,7 @@ import {
 import type { Settings, ThemeMode } from './settings'
 import { fileToAsset } from './images'
 import {
+  effectiveMarkdown,
   exportHtml,
   exportMarkdown,
   exportZip,
@@ -277,21 +278,33 @@ function schedulePreview(): void {
 }
 
 function updatePreview(): void {
-  const md = buildMarkdown(doc)
+  const md = effectiveMarkdown(doc)
   const html = marked.parse(md) as string
   const target = document.getElementById('md-preview')
   if (target) target.innerHTML = '<div class="prose">' + html + '</div>'
+
   const raw = document.getElementById('md-raw') as HTMLTextAreaElement | null
-  if (raw) raw.value = md
+  if (raw && document.activeElement !== raw) {
+    if (raw.value !== md) raw.value = md
+  }
+
   const counter = document.getElementById('md-count')
   if (counter) {
     const words = md.trim().split(/\s+/).filter(Boolean).length
     counter.textContent = `${words} palavras · ${md.length} caracteres`
   }
+  syncManualUI()
+}
+
+/** Atualiza os indicadores de modo manual sem redesenhar a aplicação. */
+function syncManualUI(): void {
+  const on = doc.manualMd.trim().length > 0
+  document.getElementById('manual-banner')?.classList.toggle('hidden', !on)
+  document.getElementById('manual-badge')?.classList.toggle('hidden', !on)
 }
 
 async function copyMarkdown(): Promise<void> {
-  const md = buildMarkdown(doc)
+  const md = effectiveMarkdown(doc)
   try {
     await navigator.clipboard.writeText(md)
   } catch {
@@ -835,6 +848,42 @@ function render(): void {
     )
   })
   formWrap.appendChild(tabBar)
+
+  const manualBanner = el('div', {
+    id: 'manual-banner',
+    class: 'ui-card p-3 flex items-start gap-2.5',
+    style: 'border-color: var(--accent)',
+  })
+  manualBanner.appendChild(
+    el(
+      'div',
+      {
+        class: 'h-6 w-6 rounded-md grid place-items-center shrink-0 text-[10px] font-bold',
+        style: 'background: var(--accent-soft); color: var(--accent)',
+      },
+      'MD',
+    ),
+  )
+  manualBanner.appendChild(
+    el(
+      'div',
+      { class: 'flex-1 min-w-0' },
+      el('div', { class: 'text-xs font-semibold ui-title' }, 'Modo manual ativo'),
+      el(
+        'div',
+        { class: 'text-[11px] ui-muted mt-0.5' },
+        'O documento vem do markdown editado. Alterações no formulário só entram ao recompor.',
+      ),
+    ),
+  )
+  manualBanner.appendChild(
+    button('Recompor', 'ui-btn shrink-0', () => {
+      doc.manualMd = ''
+      render()
+    }),
+  )
+  manualBanner.classList.toggle('hidden', !doc.manualMd.trim())
+  formWrap.appendChild(manualBanner)
 
   const c = doc.cover
 
@@ -1409,6 +1458,18 @@ function render(): void {
   })
   const headLeft = el('div', { class: 'flex items-center gap-3 min-w-0' })
   headLeft.appendChild(el('span', { class: 'ui-title text-sm' }, 'Pré-visualização'))
+  const manualBadge = el(
+    'span',
+    {
+      id: 'manual-badge',
+      class:
+        'text-[10px] font-semibold rounded px-1.5 py-0.5 uppercase tracking-wide',
+      style: 'background: var(--accent-soft); color: var(--accent)',
+    },
+    'manual',
+  )
+  manualBadge.classList.toggle('hidden', !doc.manualMd.trim())
+  headLeft.appendChild(manualBadge)
   headLeft.appendChild(el('span', { id: 'md-count', class: 'ui-muted text-[11px]' }))
   prevHead.appendChild(headLeft)
 
@@ -1443,13 +1504,41 @@ function render(): void {
   previewWrap.appendChild(previewInner)
   prevPane.appendChild(previewWrap)
 
-  const rawWrap = el('div', { class: 'hidden flex-1 overflow-hidden p-4' })
+  const rawWrap = el('div', { class: 'hidden flex-1 overflow-hidden flex flex-col' })
+
+  const rawBar = el('div', {
+    class:
+      'flex items-center justify-between gap-2 px-4 py-1.5 border-b text-[11px] shrink-0',
+    style: 'border-color: var(--border)',
+  })
+  rawBar.appendChild(
+    el(
+      'span',
+      { class: 'ui-muted' },
+      'Editável. Ao escrever, o documento passa a vir daqui.',
+    ),
+  )
+  rawBar.appendChild(
+    button('Recompor do formulário', 'ui-btn', () => {
+      doc.manualMd = ''
+      render()
+    }),
+  )
+  rawWrap.appendChild(rawBar)
+
   const rawArea = el('textarea', {
     id: 'md-raw',
-    class: 'ui-input w-full h-full font-mono text-xs resize-none',
-    readonly: 'readonly',
+    class: 'ui-input w-full h-full font-mono text-xs resize-none flex-1',
+    spellcheck: 'false',
+    style:
+      'border: 0; border-radius: 0; box-shadow: none; padding: 1rem 1.25rem; line-height: 1.65;',
   }) as HTMLTextAreaElement
   rawArea.style.fontFamily = 'var(--font-mono)'
+  rawArea.addEventListener('input', () => {
+    doc.manualMd = rawArea.value
+    schedulePreview()
+    syncManualUI()
+  })
   rawWrap.appendChild(rawArea)
   prevPane.appendChild(rawWrap)
 

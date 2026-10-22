@@ -54,9 +54,13 @@ export function documentName(doc: ReportDoc): string {
   )
 }
 
+/** Texto efetivo: markdown manual, se existir; senão o gerado. */
+export function effectiveMarkdown(doc: ReportDoc): string {
+  return doc.manualMd.trim() ? doc.manualMd : buildMarkdown(doc)
+}
+
 /** Markdown com as imagens embutidas (data URL) — ficheiro único. */
-export function exportMarkdown(doc: ReportDoc): void {
-  const md = buildMarkdown(doc)
+export function exportMarkdown(doc: ReportDoc, md = effectiveMarkdown(doc)): void {
   downloadBlob(
     new Blob([md], { type: 'text/markdown;charset=utf-8' }),
     `${documentName(doc)}.md`,
@@ -64,16 +68,23 @@ export function exportMarkdown(doc: ReportDoc): void {
 }
 
 /** Markdown com imagens em pasta relativa + ZIP. */
-export async function exportZip(doc: ReportDoc): Promise<void> {
+export async function exportZip(
+  doc: ReportDoc,
+  md = effectiveMarkdown(doc),
+): Promise<void> {
   const names = assetNames(doc)
-  const md = buildMarkdown(doc, {
-    imageSrc: (asset) => `imagens/${names.get(asset.id) ?? asset.filename}`,
-  })
+
+  // Reaproveita o mesmo markdown, trocando os data URLs por caminhos relativos.
+  let relMd = md
+  for (const asset of usedAssets(doc)) {
+    const path = `imagens/${names.get(asset.id) ?? asset.filename}`
+    relMd = relMd.split(asset.dataUrl).join(path)
+  }
 
   const entries = [
     {
       name: `${documentName(doc)}.md`,
-      data: new TextEncoder().encode(md),
+      data: new TextEncoder().encode(relMd),
     },
     ...usedAssets(doc).map((asset) => ({
       name: `imagens/${names.get(asset.id) ?? asset.filename}`,
@@ -84,8 +95,7 @@ export async function exportZip(doc: ReportDoc): Promise<void> {
   downloadBlob(createZip(entries), `${documentName(doc)}.zip`)
 }
 
-export function buildHtml(doc: ReportDoc): string {
-  const md = buildMarkdown(doc)
+export function buildHtml(doc: ReportDoc, md = effectiveMarkdown(doc)): string {
   const rendered = marked.parse(md) as string
   const title = doc.cover.title || 'Relatório'
 
@@ -155,18 +165,19 @@ ${rendered}
 </html>`
 }
 
-export function exportHtml(doc: ReportDoc): void {
+export function exportHtml(doc: ReportDoc, md = effectiveMarkdown(doc)): void {
   downloadBlob(
-    new Blob([buildHtml(doc)], { type: 'text/html;charset=utf-8' }),
+    new Blob([buildHtml(doc, md)], { type: 'text/html;charset=utf-8' }),
     `${documentName(doc)}.html`,
   )
 }
 
-export function printDocument(doc: ReportDoc): void {
+export function printDocument(doc: ReportDoc, md = effectiveMarkdown(doc)): void {
+  const html = buildHtml(doc, md)
   const win = window.open('', '_blank')
   if (!win) {
     // Popup bloqueado: abre o HTML numa nova aba para impressão manual.
-    const blob = new Blob([buildHtml(doc)], { type: 'text/html;charset=utf-8' })
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -177,7 +188,7 @@ export function printDocument(doc: ReportDoc): void {
     return
   }
   win.document.open()
-  win.document.write(buildHtml(doc))
+  win.document.write(html)
   win.document.close()
   win.focus()
   setTimeout(() => {

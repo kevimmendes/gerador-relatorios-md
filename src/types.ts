@@ -125,6 +125,8 @@ export interface Annex {
 export interface ReportDoc {
   apa: boolean
   annexStyle: 'appendix' | 'anexo'
+  /** Quando preenchido, substitui o markdown gerado pelo formulário. */
+  manualMd: string
   cover: Cover
   images: ImageAsset[]
   figures: Figure[]
@@ -220,6 +222,7 @@ export function defaultDoc(): ReportDoc {
   return {
     apa: true,
     annexStyle: 'appendix',
+    manualMd: '',
     cover: {
       title: '',
       subtitle: '',
