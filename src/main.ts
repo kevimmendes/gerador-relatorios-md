@@ -26,6 +26,9 @@ import {
   watchSystemTheme,
 } from './settings'
 import type { Settings, ThemeMode } from './settings'
+import { destroyCollab, initCollab, setUser } from './collab'
+import type { CollabState } from './collab'
+import { observeYdoc, syncToYdoc } from './collab-sync'
 import { fileToAsset } from './images'
 import {
   effectiveMarkdown,
@@ -269,12 +272,93 @@ function listEditor(
 
 let previewTimer: number | undefined
 let saveTimer: number | undefined
+let collab: CollabState | null = null
+let collabIgnore = false
+let collabTimer: number | undefined
+
+function broadcastDoc(): void {
+  if (!collab || collabIgnore) return
+  window.clearTimeout(collabTimer)
+  collabTimer = window.setTimeout(() => {
+    try {
+      syncToYdoc(collab!.doc, doc)
+    } catch {
+      /* ignore */
+    }
+  }, 60)
+}
+
+function startCollab(room: string): void {
+  stopCollab()
+  collab = initCollab(room)
+  collabIgnore = false
+
+  try {
+    observeYdoc(collab.doc, (remote: any) => {
+      collabIgnore = true
+      try {
+        Object.assign(doc, JSON.parse(JSON.stringify(remote)))
+        render()
+        updatePreview()
+      } finally {
+        collabIgnore = false
+      }
+      updateCollabUI()
+    })
+  } catch {}
+
+  try {
+    syncToYdoc(collab.doc, doc)
+  } catch {}
+  updateCollabUI()
+  if (collab) {
+    collab.awareness.on('change', updateCollabUI)
+  }
+}
+
+function stopCollab(): void {
+  if (!collab) return
+  try {
+    collab.awareness.off('change', updateCollabUI)
+  } catch {}
+  destroyCollab(collab)
+  collab = null
+  updateCollabUI()
+}
+
+function updateCollabUI(): void {
+  const status = document.getElementById('collab-status')
+  const peers = document.getElementById('collab-peers')
+  if (status) {
+    if (collab) {
+      status.textContent = `Sala: ${collab.room}`
+      status.classList.remove('hidden')
+    } else {
+      status.classList.add('hidden')
+    }
+  }
+  if (peers && collab) {
+    try {
+      const states = Array.from(collab.awareness.getStates().values())
+      const users = states.map((s: any) => s?.user).filter(Boolean)
+      peers.textContent = `${users.length} online`
+      peers.classList.remove('hidden')
+    } catch {
+      peers.classList.add('hidden')
+    }
+  } else if (peers) {
+    peers.classList.add('hidden')
+  }
+}
 
 function schedulePreview(): void {
   window.clearTimeout(previewTimer)
-  previewTimer = window.setTimeout(updatePreview, 120)
+  previewTimer = window.setTimeout(updatePreview, 80)
   window.clearTimeout(saveTimer)
-  saveTimer = window.setTimeout(() => saveDoc(doc), 600)
+  saveTimer = window.setTimeout(() => {
+    saveDoc(doc)
+    broadcastDoc()
+  }, 150)
 }
 
 function updatePreview(): void {
@@ -816,6 +900,43 @@ function render(): void {
   )
 
   const actions = el('div', { class: 'flex items-center gap-1.5 shrink-0' })
+  const collabStatus = el(
+    'span',
+    { id: 'collab-status', class: 'ui-muted text-[11px] hidden px-2' },
+    '',
+  )
+  const collabPeers = el(
+    'span',
+    { id: 'collab-peers', class: 'ui-muted text-[11px] hidden' },
+    '',
+  )
+  actions.appendChild(collabStatus)
+  actions.appendChild(collabPeers)
+  actions.appendChild(
+    button(
+      collab ? 'Sair da colaboração' : 'Colaborar',
+      collab ? 'ui-btn' : 'ui-btn',
+      () => {
+        if (collab) {
+          stopCollab()
+          render()
+          return
+        }
+        const room = window.prompt(
+          'Código da sala (compartilhe com o colega):',
+          `relatorio-${Math.random().toString(36).slice(2, 8)}`,
+        )
+        if (room && room.trim()) {
+          startCollab(room.trim())
+          // Compartilha link
+          const url = new URL(window.location.href)
+          url.searchParams.set('sala', room.trim())
+          history.replaceState({}, '', url.toString())
+          render()
+        }
+      },
+    ),
+  )
   actions.appendChild(themeToggleButton())
   actions.appendChild(
     button(icon('settings'), 'ui-btn ui-btn-ghost ui-btn-icon', openSettings, 'Aparência'),
@@ -1538,6 +1659,7 @@ function render(): void {
     doc.manualMd = rawArea.value
     schedulePreview()
     syncManualUI()
+    broadcastDoc()
   })
   rawWrap.appendChild(rawArea)
   prevPane.appendChild(rawWrap)
