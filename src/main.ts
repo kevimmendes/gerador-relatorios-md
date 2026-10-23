@@ -37,6 +37,8 @@ import {
   exportZip,
   printDocument,
 } from './export'
+import { DEFAULT_CONFIG, generateWithAI, loadAIConfig, saveAIConfig } from './ai'
+import type { AIConfig } from './ai'
 
 /* ================================================================== */
 /* Estado                                                              */
@@ -45,6 +47,7 @@ import {
 const doc: ReportDoc = mergeDoc(defaultDoc(), loadDocRaw())
 let settings: Settings = loadSettings()
 let activeTab = 0
+let aiConfig: AIConfig = loadAIConfig()
 
 applySettings(settings)
 watchSystemTheme(() => applySettings(settings))
@@ -91,6 +94,8 @@ const ICONS: Record<string, string> = {
   x: 'M18 6 6 18M6 6l12 12',
   check: 'M20 6 9 17l-5-5',
   reset: 'M3 12a9 9 0 1 0 3-6.7M3 4v5h5',
+  sparkles:
+    'M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9zM18 15l.9 2.1 2.1.9-2.1.9L18 21l-.9-2.1-2.1-.9 2.1-.9z',
 }
 
 function icon(name: keyof typeof ICONS | string): SVGSVGElement {
@@ -843,6 +848,431 @@ function renderExport(): void {
 }
 
 /* ================================================================== */
+/* Geração com IA (modal)                                              */
+/* ================================================================== */
+
+let aiOverlay: HTMLElement | null = null
+
+const AI_TEMPLATES: Array<[string, string]> = [
+  [
+    'Auditoria de segurança',
+    'Relatório de auditoria à segurança de uma plataforma web. Avaliar cabeçalhos HTTP, HTTPS/HSTS, autenticação, gestão de sessões, exposição de informação e configuração de servidores. Público: Direção Técnica e equipa de desenvolvimento. Incluir achados classificados por severidade, evidências, impacto e correção recomendada.',
+  ],
+  [
+    'Relatório de projeto',
+    'Relatório final de projeto de desenvolvimento de software. Descrever objetivos, âmbito, metodologia ágil adotada, entregas por fase, indicadores de desempenho, riscos materializados e lições aprendidas. Público: patrocinador e partes interessadas.',
+  ],
+  [
+    'Análise de incidente',
+    'Relatório pós-incidente de indisponibilidade de serviço. Descrever cronologia, causa raiz, impacto nos utilizadores, ações de contenção, correções aplicadas e medidas preventivas. Público: Direção de Operações.',
+  ],
+  [
+    'Avaliação de desempenho',
+    'Relatório de avaliação de desempenho de sistema. Medir tempos de resposta, taxa de erro, disponibilidade e capacidade. Apresentar metodologia de medição, resultados e recomendações de otimização. Público: equipa de engenharia.',
+  ],
+]
+
+function openAI(): void {
+  if (aiOverlay) return
+  aiOverlay = el('div', { class: 'ui-overlay' })
+  aiOverlay.addEventListener('click', (e) => {
+    if (e.target === aiOverlay) closeAI()
+  })
+  document.body.appendChild(aiOverlay)
+  renderAI()
+}
+
+function closeAI(): void {
+  aiOverlay?.remove()
+  aiOverlay = null
+}
+
+function renderAI(): void {
+  if (!aiOverlay) return
+  aiOverlay.innerHTML = ''
+
+  const modal = el('div', { class: 'ui-modal', style: 'max-width: 720px' })
+
+  /* Cabeçalho */
+  modal.appendChild(
+    el(
+      'div',
+      {
+        class: 'flex items-start justify-between gap-3 px-5 py-4 border-b shrink-0',
+        style: 'border-color: var(--border)',
+      },
+      el(
+        'div',
+        {},
+        el(
+          'div',
+          { class: 'flex items-center gap-2' },
+          el(
+            'div',
+            {
+              class: 'h-7 w-7 rounded-lg grid place-items-center shrink-0',
+              style: 'background: var(--accent-soft); color: var(--accent)',
+            },
+            icon('sparkles'),
+          ),
+          el('div', { class: 'ui-title text-sm' }, 'Gerar relatório com IA'),
+        ),
+        el(
+          'div',
+          { class: 'ui-muted text-xs mt-1' },
+          'Descreva o guião. A IA monta capa, secções, achados e referências no formato formal.',
+        ),
+      ),
+      button(icon('x'), 'ui-btn ui-btn-ghost ui-btn-icon', closeAI, 'Fechar'),
+    ),
+  )
+
+  const body = el('div', { class: 'p-5 space-y-4 overflow-y-auto' })
+
+  /* ---------------- Briefing ---------------- */
+  const briefCard = el('div', { class: 'ui-card' })
+  briefCard.appendChild(
+    el(
+      'div',
+      { class: 'ui-card-head' },
+      el('div', { class: 'ui-card-title' }, 'Guião / Briefing'),
+      el('div', { class: 'ui-card-sub' }, 'Quanto mais específico, melhor o resultado'),
+    ),
+  )
+  const briefBody = el('div', { class: 'ui-card-body space-y-3' })
+
+  const chips = el('div', { class: 'flex flex-wrap gap-1.5' })
+  const briefTa = el('textarea', {
+    class: 'ui-input',
+    rows: '7',
+    placeholder:
+      'Ex.: Relatório de auditoria à segurança da plataforma X. Objetivo: avaliar HTTPS, HSTS e cabeçalhos. Público: Direção Técnica. Incluir achados com severidade e recomendações.',
+  }) as HTMLTextAreaElement
+  briefTa.style.resize = 'vertical'
+
+  for (const [name, text] of AI_TEMPLATES) {
+    chips.appendChild(
+      button(`+ ${name}`, 'ui-btn text-[11px]', () => {
+        briefTa.value = text
+        briefTa.focus()
+      }),
+    )
+  }
+
+  const typeInput = el('input', {
+    class: 'ui-input',
+    type: 'text',
+    placeholder: 'Relatório de auditoria',
+  }) as HTMLInputElement
+  const audienceInput = el('input', {
+    class: 'ui-input',
+    type: 'text',
+    placeholder: 'Direção Técnica',
+  }) as HTMLInputElement
+
+  const toneSelect = el('select', { class: 'ui-input' }) as HTMLSelectElement
+  for (const [val, txt] of [
+    ['formal', 'Formal'],
+    ['muito-formal', 'Muito formal / institucional'],
+  ]) {
+    const o = el('option', { value: val }, txt) as HTMLOptionElement
+    toneSelect.appendChild(o)
+  }
+
+  briefBody.appendChild(field('Descrição do relatório', briefTa))
+  briefBody.appendChild(
+    el(
+      'div',
+      { class: 'flex flex-wrap items-center gap-1.5' },
+      el('span', { class: 'text-[11px] ui-muted mr-1' }, 'Modelos:'),
+      chips,
+    ),
+  )
+
+  const findCB = checkInput(true, 'Achados com severidade', () => {})
+  const recCB = checkInput(true, 'Recomendações', () => {})
+  const refCB = checkInput(true, 'Referências APA', () => {})
+  const checks = el('div', { class: 'flex flex-wrap gap-x-5 gap-y-2' })
+  checks.appendChild(findCB)
+  checks.appendChild(recCB)
+  checks.appendChild(refCB)
+
+  briefBody.appendChild(grid2(field('Tipo de relatório', typeInput), field('Público-alvo', audienceInput)))
+  briefBody.appendChild(field('Tom', toneSelect))
+  briefBody.appendChild(checks)
+  briefCard.appendChild(briefBody)
+  body.appendChild(briefCard)
+
+  /* ---------------- Configuração ---------------- */
+  const cfgCard = el('div', { class: 'ui-card' })
+  cfgCard.appendChild(
+    el(
+      'div',
+      { class: 'ui-card-head' },
+      el('div', { class: 'ui-card-title' }, 'Ligação ao modelo'),
+      el(
+        'div',
+        { class: 'ui-card-sub' },
+        'Compatível com OpenRouter, OpenAI, Groq, Together e Ollama local',
+      ),
+    ),
+  )
+  const cfgBody = el('div', { class: 'ui-card-body space-y-3' })
+
+  const baseUrlInput = el('input', {
+    class: 'ui-input',
+    type: 'text',
+    placeholder: 'https://openrouter.ai/api/v1',
+  }) as HTMLInputElement
+  baseUrlInput.value = aiConfig.baseUrl
+
+  const modelInput = el('input', {
+    class: 'ui-input',
+    type: 'text',
+    placeholder: 'google/gemini-2.5-flash',
+  }) as HTMLInputElement
+  modelInput.value = aiConfig.model
+
+  const keyInput = el('input', {
+    class: 'ui-input',
+    type: 'password',
+    placeholder: 'sk-or-v1-…',
+    autocomplete: 'off',
+  }) as HTMLInputElement
+  keyInput.value = aiConfig.apiKey
+
+  const persist = () => {
+    aiConfig = {
+      ...aiConfig,
+      baseUrl: baseUrlInput.value.trim() || DEFAULT_CONFIG.baseUrl,
+      model: modelInput.value.trim() || DEFAULT_CONFIG.model,
+      apiKey: keyInput.value.trim(),
+    }
+    saveAIConfig(aiConfig)
+  }
+  baseUrlInput.addEventListener('change', persist)
+  modelInput.addEventListener('change', persist)
+  keyInput.addEventListener('change', persist)
+
+  cfgBody.appendChild(grid2(field('URL base', baseUrlInput), field('Modelo', modelInput)))
+  cfgBody.appendChild(field('Chave da API', keyInput))
+  cfgBody.appendChild(
+    el(
+      'div',
+      { class: 'flex flex-wrap items-center gap-2' },
+      el(
+        'a',
+        {
+          href: 'https://openrouter.ai/keys',
+          target: '_blank',
+          rel: 'noopener',
+          class: 'ui-btn text-[11px]',
+        },
+        'Obter chave gratuita',
+      ),
+      el(
+        'span',
+        { class: 'text-[11px] ui-muted' },
+        'A chave fica apenas neste navegador (localStorage).',
+      ),
+    ),
+  )
+  cfgCard.appendChild(cfgBody)
+  body.appendChild(cfgCard)
+
+  /* ---------------- Ação ---------------- */
+  const status = el('div', { class: 'text-xs ui-muted min-h-[1.25rem]' })
+
+  const genBtn = button('Gerar relatório', 'ui-btn ui-btn-primary w-full', () => {
+    void runGeneration()
+  })
+
+  async function runGeneration(): Promise<void> {
+    if (!briefTa.value.trim()) {
+      status.textContent = 'Descreva o relatório antes de gerar.'
+      briefTa.focus()
+      return
+    }
+    persist()
+    if (!aiConfig.apiKey.trim()) {
+      status.textContent = 'Falta a chave da API. Preencha acima e tente novamente.'
+      keyInput.focus()
+      return
+    }
+
+    genBtn.disabled = true
+    genBtn.textContent = 'A gerar… (pode levar 20–60 s)'
+    status.textContent = 'A IA está a escrever o relatório completo.'
+
+    try {
+      const data = await generateWithAI(
+        {
+          briefing: briefTa.value.trim(),
+          reportType: typeInput.value.trim(),
+          audience: audienceInput.value.trim(),
+          tone: toneSelect.value as 'formal' | 'muito-formal',
+          includeFindings: (findCB.querySelector('input') as HTMLInputElement).checked,
+          includeRecommendations: (recCB.querySelector('input') as HTMLInputElement).checked,
+          includeReferences: (refCB.querySelector('input') as HTMLInputElement).checked,
+          language: 'pt',
+        },
+        aiConfig,
+      )
+
+      applyAIData(data)
+      saveDoc(doc)
+      broadcastDoc()
+      closeAI()
+      activeTab = 0
+      render()
+      updatePreview()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Erro desconhecido.'
+      status.textContent = msg
+    } finally {
+      genBtn.disabled = false
+      genBtn.textContent = 'Gerar relatório'
+    }
+  }
+
+  body.appendChild(genBtn)
+  body.appendChild(status)
+  modal.appendChild(body)
+  aiOverlay.appendChild(modal)
+}
+
+/** Converte o JSON devolvido pela IA no modelo interno. */
+function applyAIData(data: Record<string, any>): void {
+  const list = (arr: unknown): Array<{ id: string; text: string }> =>
+    Array.isArray(arr)
+      ? arr
+          .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+          .map((text) => ({ id: uid('li'), text: text.trim() }))
+      : []
+
+  if (data.cover && typeof data.cover === 'object') {
+    for (const [key, value] of Object.entries(data.cover)) {
+      if (key in doc.cover && typeof value === 'string' && value.trim()) {
+        ;(doc.cover as unknown as Record<string, string>)[key] = value.trim()
+      }
+    }
+  }
+
+  if (typeof data.executiveSummary === 'string' && data.executiveSummary.trim()) {
+    doc.executiveSummary.enabled = true
+    doc.executiveSummary.text = data.executiveSummary.trim()
+  }
+
+  const objective = list(data.objective)
+  if (objective.length) {
+    doc.objective.enabled = true
+    doc.objective.items = objective
+  }
+
+  const scope = list(data.scope)
+  if (scope.length) {
+    doc.scope.enabled = true
+    doc.scope.items = scope
+  }
+
+  const methodology = list(data.methodology)
+  if (methodology.length) {
+    doc.scope.methodology.enabled = true
+    doc.scope.methodology.items = methodology
+  }
+
+  const notDone = list(data.notDone)
+  if (notDone.length) doc.scope.notDone = notDone
+
+  const recommendations = list(data.recommendations)
+  if (recommendations.length) {
+    doc.recommendations.enabled = true
+    doc.recommendations.items = recommendations
+  }
+
+  if (typeof data.conclusion === 'string' && data.conclusion.trim()) {
+    doc.conclusion.enabled = true
+    doc.conclusion.text = data.conclusion.trim()
+  }
+
+  if (Array.isArray(data.findings) && data.findings.length) {
+    doc.findings.enabled = true
+    doc.findings.items = data.findings.map((f: Record<string, any>) => {
+      const sev = String(f.severity || '').toLowerCase()
+      const severity: Severity =
+        sev === 'critica' || sev === 'crítica'
+          ? 'critica'
+          : sev === 'alta'
+            ? 'alta'
+            : sev === 'baixa'
+              ? 'baixa'
+              : sev === 'informativa'
+                ? 'informativa'
+                : 'media'
+      return {
+        id: uid('f'),
+        code: String(f.code || ''),
+        severity,
+        title: String(f.title || ''),
+        reference: String(f.reference || ''),
+        status: String(f.status || 'Aberto'),
+        evidence: String(f.evidence || ''),
+        analysis: String(f.analysis || ''),
+        impact: String(f.impact || ''),
+        correction: String(f.correction || ''),
+      }
+    })
+  }
+
+  if (Array.isArray(data.references) && data.references.length) {
+    doc.references.enabled = true
+    doc.references.items = data.references.map((r: Record<string, any>) => {
+      const type = String(r.type || 'website') as RefType
+      return {
+        id: uid('r'),
+        type: type in REF_TYPES ? type : 'website',
+        authors: String(r.authors || ''),
+        corporate: Boolean(r.corporate),
+        year: String(r.year || ''),
+        title: String(r.title || ''),
+        source: String(r.source || ''),
+        volume: String(r.volume || ''),
+        issue: String(r.issue || ''),
+        pages: String(r.pages || ''),
+        publisher: String(r.publisher || ''),
+        edition: String(r.edition || ''),
+        editors: String(r.editors || ''),
+        url: String(r.url || ''),
+        doi: String(r.doi || ''),
+        accessed: String(r.accessed || ''),
+      }
+    })
+  }
+
+  if (Array.isArray(data.annexes) && data.annexes.length) {
+    doc.annexes.enabled = true
+    doc.annexes.items = data.annexes.map((a: Record<string, any>) => ({
+      id: uid('an'),
+      title: String(a.title || ''),
+      body: String(a.body || ''),
+    }))
+  }
+
+  if (Array.isArray(data.sections) && data.sections.length) {
+    doc.sections = data.sections
+      .filter((s: Record<string, any>) => s && (s.title || s.body))
+      .map((s: Record<string, any>) => ({
+        id: uid('s'),
+        enabled: true,
+        title: String(s.title || ''),
+        body: String(s.body || ''),
+      }))
+  }
+
+  doc.manualMd = ''
+}
+
+/* ================================================================== */
 /* Render principal                                                    */
 /* ================================================================== */
 
@@ -957,6 +1387,19 @@ function render(): void {
         render()
       },
       collab ? 'Sair da colaboração' : 'Criar ou entrar em sala',
+    ),
+  )
+  actions.appendChild(
+    button(
+      el(
+        'span',
+        { class: 'flex items-center gap-1.5' },
+        icon('sparkles'),
+        el('span', { class: 'hidden md:inline' }, 'IA'),
+      ),
+      'ui-btn',
+      openAI,
+      'Gerar relatório com IA',
     ),
   )
   actions.appendChild(themeToggleButton())

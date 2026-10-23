@@ -60,11 +60,24 @@ Ao marcar **“Autor(es) é uma instituição”**, o nome é transcrito por ext
 
 ## Funcionalidades
 
-- Pré-visualização em tempo real (renderizada e Markdown bruto)
-- Download do ficheiro `.md`
+- Pré-visualização em tempo real (renderizada e Markdown bruto editável)
+- Modo manual: ao editar o Markdown, ele passa a ser a fonte do documento
+- Geração completa a partir de um guião com IA (OpenRouter, OpenAI, Groq, Ollama)
+- Colaboração em tempo real por sala (Yjs + WebRTC), com presença online
+- Download do ficheiro `.md`, pacote `.zip`, página `.html` e impressão em PDF
 - Cópia do Markdown para a área de transferência
 - Numeração automática de secções e anexos (A, B, C…)
 - Sumário com âncoras compatíveis com GitHub/Obsidian
+
+## IA
+
+O botão **IA** abre um assistente que recebe um guião em linguagem natural e
+devolve capa, resumo, objetivo, âmbito, metodologia, secções, achados,
+referências APA e anexos já preenchidos.
+
+A chave da API é guardada apenas no `localStorage` do navegador. Qualquer
+endpoint compatível com a API de *chat completions* funciona; por omissão
+usa OpenRouter.
 
 ## Stack
 
